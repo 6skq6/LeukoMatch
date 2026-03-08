@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeukoMatch AI 临床辅助决策系统 - 孙克群</title>
+    
+    <!-- 引入 Tailwind CSS (用于界面样式) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 FontAwesome 图标库 (替代原版的 Lucide，更适合单文件 HTML) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- 引入 React 核心库 -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- 引入 Babel (让浏览器能直接运行 JSX 语法) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* 自定义动画效果 */
+        @keyframes fade-in-up {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up {
+            animation: fade-in-up 0.6s ease-out forwards;
+        }
+        /* 优化滚动条 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-800 overflow-hidden">
+    <!-- React 应用的挂载点 -->
+    <div id="root"></div>
+
+    <!-- React 逻辑代码 -->
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- 图标组件映射 (适配单文件 HTML 格式) ---
+        const Activity = ({className}) => <i className={`fas fa-heartbeat ${className}`}></i>;
+        const Users = ({className}) => <i className={`fas fa-users ${className}`}></i>;
+        const FileText = ({className}) => <i className={`fas fa-file-alt ${className}`}></i>;
+        const Settings = ({className}) => <i className={`fas fa-cog ${className}`}></i>;
+        const Search = ({className}) => <i className={`fas fa-search ${className}`}></i>;
+        const CheckCircle = ({className}) => <i className={`fas fa-check-circle ${className}`}></i>;
+        const AlertTriangle = ({className}) => <i className={`fas fa-exclamation-triangle ${className}`}></i>;
+        const ChevronRight = ({className}) => <i className={`fas fa-chevron-right ${className}`}></i>;
+        const ActivitySquare = ({className}) => <i className={`fas fa-hospital ${className}`}></i>;
+        const Database = ({className}) => <i className={`fas fa-database ${className}`}></i>;
+        const BrainCircuit = ({className}) => <i className={`fas fa-brain ${className}`}></i>;
+        const Loader2 = ({className}) => <i className={`fas fa-circle-notch fa-spin ${className}`}></i>;
+        const Plus = ({className}) => <i className={`fas fa-plus ${className}`}></i>;
+        const BookOpen = ({className}) => <i className={`fas fa-book-medical ${className}`}></i>;
+        const Sliders = ({className}) => <i className={`fas fa-sliders-h ${className}`}></i>;
+        const Shield = ({className}) => <i className={`fas fa-shield-alt ${className}`}></i>;
+        const Zap = ({className}) => <i className={`fas fa-bolt ${className}`}></i>;
+        const ExternalLink = ({className}) => <i className={`fas fa-external-link-alt ${className}`}></i>;
+        const Server = ({className}) => <i className={`fas fa-server ${className}`}></i>;
+        const X = ({className}) => <i className={`fas fa-times ${className}`}></i>;
+
+        // --- 子组件定义 ---
+        const NavItem = ({ icon, text, active, onClick }) => (
+            <div onClick={onClick} className={`flex items-center px-4 py-3 rounded-lg cursor-pointer transition-colors ${active ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+                <div className="mr-3 w-5 h-5 flex items-center justify-center text-lg">{icon}</div>
+                <span className="font-medium text-sm">{text}</span>
+                {active && <ChevronRight className="h-4 w-4 ml-auto opacity-70" />}
+            </div>
+        );
+
+        const SimilarPatientCard = ({ id, similarity, traits, treatment, outcome, status }) => {
+            const statusStyles = {
+                success: 'bg-green-50 border-green-200 text-green-700',
+                warning: 'bg-amber-50 border-amber-200 text-amber-700',
+                danger: 'bg-red-50 border-red-200 text-red-700'
+            };
+            const currentStyle = statusStyles[status] || 'bg-slate-50 border-slate-200 text-slate-700';
+
+            return (
+                <div className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-1">
+                    <span className="font-bold text-slate-700">{id}</span>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">相似度 {similarity}%</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-2">特征: {traits}</p>
+                    <p className="text-sm"><span className="font-medium text-slate-600">历史方案:</span> {treatment}</p>
+                </div>
+                <div className={`px-4 py-2 rounded-lg border text-sm font-medium text-center min-w-[140px] ${currentStyle}`}>
+                    {outcome}
+                </div>
+                </div>
+            );
+        };
+
+        // --- 主应用组件 ---
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('assessment');
+            const [isAnalyzing, setIsAnalyzing] = useState(false);
+            const [showResults, setShowResults] = useState(false);
+            const [loadingStep, setLoadingStep] = useState(0);
+            const [showAddCaseForm, setShowAddCaseForm] = useState(false);
+            
+            const [modelSettings, setModelSettings] = useState({
+                genomicWeight: 65,
+                clinicalWeight: 25,
+                demographicWeight: 10,
+                llmEngine: 'leukomatch-med-v2',
+                federatedLearning: true
+            });
+
+            const [patientData, setPatientData] = useState({
+                age: '',
+                gender: 'male',
+                leukemiaType: 'AML',
+                wbc: '',
+                mutations: []
+            });
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setPatientData({ ...patientData, [name]: value });
+            };
+
+            const handleMutationChange = (mutation) => {
+                setPatientData(prev => {
+                const current = prev.mutations;
+                if (current.includes(mutation)) {
+                    return { ...prev, mutations: current.filter(m => m !== mutation) };
+                } else {
+                    return { ...prev, mutations: [...current, mutation] };
+                }
+                });
+            };
+
+            const handleAnalyze = (e) => {
+                e.preventDefault();
+                setIsAnalyzing(true);
+                setShowResults(false);
+                setLoadingStep(0);
+
+                const steps = 3;
+                let currentStep = 0;
+                
+                const interval = setInterval(() => {
+                currentStep++;
+                setLoadingStep(currentStep);
+                
+                if (currentStep >= steps) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                    setIsAnalyzing(false);
+                    setShowResults(true);
+                    }, 800);
+                }
+                }, 1200);
+            };
+
+            const loadingMessages = [
+                "正在将患者临床特征与基因测序结果向量化...",
+                "正在全局患者相似性网络 (PSN) 中计算多维欧氏距离...",
+                "检索到 1,428 例相似历史患者，正在评估历史治疗方案生存率 (OS)...",
+                "生成零试错最优治疗推荐指南完成。"
+            ];
+
+            const renderContent = () => {
+                switch (activeTab) {
+                case 'assessment':
+                    return (
+                    <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fade-in-up pb-10">
+                        {/* 左侧：输入区 */}
+                        <div className="col-span-1 lg:col-span-5 space-y-6">
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <div className="bg-blue-50/50 border-b border-slate-200 p-4">
+                            <h3 className="text-md font-bold text-slate-800 flex items-center">
+                                <Users className="h-5 w-5 mr-2 text-blue-600" />
+                                录入新患者多维特征
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-1">输入尽可能详细的病理指标以提高相似网络匹配精度。</p>
+                            </div>
+                            
+                            <form onSubmit={handleAnalyze} className="p-5 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">患者年龄</label>
+                                <input type="number" name="age" value={patientData.age} onChange={handleInputChange} required className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="例如: 45" />
+                                </div>
+                                <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">性别</label>
+                                <select name="gender" value={patientData.gender} onChange={handleInputChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                                    <option value="male">男</option>
+                                    <option value="female">女</option>
+                                </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">白血病分型</label>
+                                <select name="leukemiaType" value={patientData.leukemiaType} onChange={handleInputChange} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                                <option value="AML">急性髓系白血病 (AML)</option>
+                                <option value="ALL">急性淋巴细胞白血病 (ALL)</option>
+                                <option value="CML">慢性髓系白血病 (CML)</option>
+                                <option value="CLL">慢性淋巴细胞白血病 (CLL)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">初诊白细胞计数 (WBC, ×10^9/L)</label>
+                                <input type="number" name="wbc" value={patientData.wbc} onChange={handleInputChange} required className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="例如: 85.5" />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">关键基因突变谱 (多选)</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                {['FLT3-ITD', 'NPM1', 'CEBPA', 'TP53', 'IDH1/2', 'DNMT3A'].map(mutation => (
+                                    <label key={mutation} className={`flex items-center p-2 rounded border cursor-pointer transition-all ${patientData.mutations.includes(mutation) ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        className="mr-2"
+                                        checked={patientData.mutations.includes(mutation)}
+                                        onChange={() => handleMutationChange(mutation)}
+                                    />
+                                    <span className="text-sm font-medium">{mutation}</span>
+                                    </label>
+                                ))}
+                                </div>
+                            </div>
+
+                            <div className="pt-4">
+                                <button 
+                                type="submit" 
+                                disabled={isAnalyzing || !patientData.age || !patientData.wbc}
+                                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center transition-colors shadow-md hover:shadow-lg"
+                                >
+                                {isAnalyzing ? (
+                                    <>
+                                    <Loader2 className="h-5 w-5 mr-2" />
+                                    AI 深度匹配中...
+                                    </>
+                                ) : (
+                                    <>
+                                    <BrainCircuit className="h-5 w-5 mr-2" />
+                                    开始 AI 智能匹配与预测
+                                    </>
+                                )}
+                                </button>
+                            </div>
+                            </form>
+                        </div>
+                        </div>
+
+                        {/* 右侧：结果展示区 */}
+                        <div className="col-span-1 lg:col-span-7 flex flex-col">
+                        {!isAnalyzing && !showResults && (
+                            <div className="flex-1 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 min-h-[500px]">
+                            <Activity className="text-6xl mb-4 text-slate-300" />
+                            <p className="text-lg font-medium">等待输入患者特征</p>
+                            <p className="text-sm mt-2 max-w-sm text-center">输入左侧数据后，AI 将在数百万级临床数据库中为您寻找高度匹配的历史病例，并推荐最佳“零试错”方案。</p>
+                            </div>
+                        )}
+
+                        {isAnalyzing && (
+                            <div className="flex-1 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col items-center justify-center p-8 min-h-[500px]">
+                            <div className="relative w-24 h-24 mb-8">
+                                <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
+                                <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+                                <BrainCircuit className="absolute inset-0 m-auto h-8 w-8 text-blue-600 animate-pulse flex items-center justify-center text-2xl" />
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 mb-6">AI 临床大模型推演中</h3>
+                            <div className="w-full max-w-md space-y-4">
+                                {loadingMessages.map((msg, idx) => (
+                                <div key={idx} className={`flex items-center text-sm transition-opacity duration-500 ${idx <= loadingStep ? 'opacity-100' : 'opacity-0'}`}>
+                                    {idx < loadingStep ? (
+                                    <CheckCircle className="h-5 w-5 text-green-500 mr-3 shrink-0 flex items-center justify-center" />
+                                    ) : idx === loadingStep ? (
+                                    <Loader2 className="h-5 w-5 text-blue-500 mr-3 shrink-0 flex items-center justify-center" />
+                                    ) : (
+                                    <div className="h-5 w-5 rounded-full border-2 border-slate-200 mr-3 shrink-0"></div>
+                                    )}
+                                    <span className={idx < loadingStep ? 'text-slate-500' : idx === loadingStep ? 'text-blue-700 font-medium' : 'text-slate-400'}>{msg}</span>
+                                </div>
+                                ))}
+                            </div>
+                            </div>
+                        )}
+
+                        {showResults && (
+                            <div className="space-y-6 animate-fade-in-up">
+                            {/* AI 推荐方案卡片 (首选) */}
+                            <div className="bg-gradient-to-br from-blue-900 to-indigo-900 rounded-xl shadow-lg border border-blue-800 p-1">
+                                <div className="bg-white rounded-lg p-6 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg z-10">
+                                    AI 最优推荐
+                                </div>
+                                <div className="flex flex-col sm:flex-row items-start justify-between">
+                                    <div>
+                                    <h3 className="text-sm font-bold text-blue-600 uppercase tracking-wider mb-1">避免试错 - 首选诱导方案</h3>
+                                    <h2 className="text-2xl font-black text-slate-800">
+                                        {patientData.leukemiaType === 'AML' && patientData.mutations.includes('FLT3-ITD') 
+                                        ? '"7+3" 标准化疗 + 米哚妥林 (Midostaurin)' 
+                                        : '"7+3" (阿糖胞苷 + 柔红霉素) 诱导方案'}
+                                    </h2>
+                                    <p className="text-slate-500 mt-2 text-sm leading-relaxed max-w-xl">
+                                        基于相似度极高的 142 名历史患者数据推断。该方案能最大限度克服早期耐药性，预计为患者争取到最佳的骨髓移植窗口期。
+                                    </p>
+                                    </div>
+                                    <div className="text-left sm:text-right mt-4 sm:mt-0 sm:ml-4 shrink-0 border-t sm:border-t-0 pt-4 sm:pt-0 border-slate-100">
+                                    <div className="text-4xl font-black text-green-500">82.4%</div>
+                                    <div className="text-xs text-slate-500 mt-1">历史完全缓解率 (CR)</div>
+                                    </div>
+                                </div>
+                                </div>
+                            </div>
+
+                            {/* 相似历史病例网络 */}
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
+                                <h3 className="font-bold text-slate-800 flex items-center">
+                                    <Database className="h-5 w-5 mr-2 text-indigo-500" />
+                                    历史相似患者聚类 (Top 3)
+                                </h3>
+                                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full font-medium">AI 检索量: 14,208 例</span>
+                                </div>
+                                
+                                <div className="divide-y divide-slate-100">
+                                <SimilarPatientCard 
+                                    id="PT-2021-8842"
+                                    similarity={96.5}
+                                    traits={`年龄 ${patientData.age || 45}, WBC ${patientData.wbc || 80}, ${patientData.mutations.join(', ') || '无显著突变'}`}
+                                    treatment={patientData.mutations.includes('FLT3-ITD') ? "7+3 + 米哚妥林" : "7+3 标准化疗"}
+                                    outcome="完全缓解 (存活 > 3年)"
+                                    status="success"
+                                />
+                                <SimilarPatientCard 
+                                    id="PT-2019-3301"
+                                    similarity={92.1}
+                                    traits={`年龄 ${Number(patientData.age || 45) + 2}, WBC ${Number(patientData.wbc || 80) * 0.9}, 突变相符`}
+                                    treatment="维奈克拉 + 阿扎胞苷"
+                                    outcome="部分缓解后复发"
+                                    status="warning"
+                                />
+                                <SimilarPatientCard 
+                                    id="PT-2022-1099"
+                                    similarity={89.8}
+                                    traits={`年龄 ${Number(patientData.age || 45) - 3}, WBC ${Number(patientData.wbc || 80) * 1.1}, 突变相符`}
+                                    treatment={patientData.mutations.includes('FLT3-ITD') ? "7+3 + 米哚妥林" : "7+3 标准化疗"}
+                                    outcome="完全缓解 (随后成功造血干细胞移植)"
+                                    status="success"
+                                />
+                                </div>
+                            </div>
+
+                            {/* 医生警示评判 */}
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex items-start">
+                                <AlertTriangle className="h-6 w-6 text-amber-500 mr-3 mt-0.5 shrink-0 flex items-center justify-center" />
+                                <div>
+                                <h4 className="font-bold text-amber-800 mb-1">系统临床风险提示</h4>
+                                <p className="text-sm text-amber-700">
+                                    {patientData.wbc > 100 ? "检测到患者初诊白细胞极高 (>100)，存在肿瘤溶解综合征高风险，建议在诱导方案前进行白细胞单采。" : "尽管 AI 推荐方案历史成功率高，但患者具体心肺耐受能力需由主治医师进行最终评估，AI 意见仅供参考，不可替代临床决策。"}
+                                </p>
+                                </div>
+                            </div>
+                            </div>
+                        )}
+                        </div>
+                    </div>
+                    );
+                case 'database':
+                    return (
+                    <div className="max-w-7xl mx-auto space-y-6 animate-fade-in-up pb-10">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4">
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800">全国多中心历史病例图谱 (PSN)</h2>
+                            <p className="text-sm text-slate-500 mt-1">目前已接入 14,208 份高质量脱敏白血病诊疗记录</p>
+                        </div>
+                        <button 
+                            onClick={() => setShowAddCaseForm(!showAddCaseForm)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium flex items-center justify-center shadow-sm transition-colors"
+                        >
+                            {showAddCaseForm ? <X className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                            {showAddCaseForm ? "取消录入" : "录入新历史病历"}
+                        </button>
+                        </div>
+
+                        {showAddCaseForm ? (
+                        <div className="bg-white border border-indigo-200 rounded-xl p-6 shadow-sm mb-6 animate-fade-in-up">
+                            <div className="flex items-center mb-4 pb-4 border-b border-slate-100">
+                            <Server className="h-5 w-5 text-indigo-500 mr-2" />
+                            <h3 className="text-lg font-bold text-slate-700">结构化历史病历录入 (用于模型微调)</h3>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">患者编号 (脱敏)</label>
+                                <input type="text" className="w-full px-3 py-2 border border-slate-300 rounded-md bg-slate-50" defaultValue="PT-2026-AUTO-992" disabled />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">确诊分型</label>
+                                <select className="w-full px-3 py-2 border border-slate-300 rounded-md"><option>AML</option><option>ALL</option></select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">基因突变 (逗号分隔)</label>
+                                <input type="text" className="w-full px-3 py-2 border border-slate-300 rounded-md" placeholder="e.g. FLT3-ITD, NPM1" />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-slate-700 mb-1">采用的治疗方案 (历史)</label>
+                                <input type="text" className="w-full px-3 py-2 border border-slate-300 rounded-md" placeholder="例如：标准 7+3 化疗联合维奈克拉" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">最终结局 (OS/CR)</label>
+                                <select className="w-full px-3 py-2 border border-slate-300 rounded-md">
+                                <option>完全缓解 (CR) 并长期存活</option>
+                                <option>部分缓解 (PR) 后复发</option>
+                                <option>难治/耐药</option>
+                                </select>
+                            </div>
+                            </div>
+                            <div className="mt-6 flex justify-end">
+                            <button className="bg-indigo-100 text-indigo-700 px-6 py-2 rounded-lg font-medium hover:bg-indigo-200" onClick={() => setShowAddCaseForm(false)}>提交并向量化入库</button>
+                            </div>
+                        </div>
+                        ) : (
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="lg:col-span-2 bg-slate-900 rounded-xl flex items-center justify-center min-h-[400px] border border-slate-800 relative overflow-hidden shadow-inner">
+                            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-500 via-slate-900 to-black"></div>
+                            <div className="text-center z-10 p-6">
+                                <Database className="text-6xl text-indigo-400 mx-auto mb-4 opacity-80" />
+                                <p className="text-indigo-200 font-medium">3D 患者相似性网络拓扑图渲染区域</p>
+                                <p className="text-slate-500 text-sm mt-2">包含 14,208 个高维特征节点</p>
+                            </div>
+                            </div>
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[400px] lg:h-auto">
+                            <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-700">最近入库数据日志</div>
+                            <div className="p-4 flex-1 space-y-4 overflow-auto">
+                                {[1, 2, 3, 4, 5, 6].map((item) => (
+                                <div key={item} className="text-sm border-l-2 border-green-400 pl-3">
+                                    <p className="text-slate-800 font-medium">节点 PT-2025-{8000+item} 已向量化</p>
+                                    <p className="text-slate-500 text-xs mt-1">AML / FLT3-TKD / CR 持续 2 年</p>
+                                    <p className="text-slate-400 text-xs mt-0.5">来源: 协和医院血液中心 • {item*10}分钟前</p>
+                                </div>
+                                ))}
+                            </div>
+                            </div>
+                        </div>
+                        )}
+                    </div>
+                    );
+                case 'guidelines':
+                    return (
+                    <div className="max-w-7xl mx-auto space-y-6 animate-fade-in-up pb-10">
+                        <div className="mb-8">
+                        <h2 className="text-2xl font-bold text-slate-800">AI 循证医学与临床指南知识库</h2>
+                        <p className="text-sm text-slate-500 mt-1">每日由 LLM 自动检索并解析 PubMed, NEJM, Blood 及各大权威临床实践指南。</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <div className="flex items-center mb-6">
+                            <BookOpen className="h-6 w-6 text-blue-600 mr-2 flex items-center justify-center" />
+                            <h3 className="text-lg font-bold text-slate-800">核心权威指南 (已向量化)</h3>
+                            </div>
+                            <div className="space-y-4">
+                            <div className="group p-4 rounded-lg border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition-colors cursor-pointer">
+                                <div className="flex justify-between items-start">
+                                <h4 className="font-bold text-slate-700 group-hover:text-blue-700">NCCN 肿瘤学临床实践指南：急性髓系白血病</h4>
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded ml-2 shrink-0">2024 V1版</span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-2">AI 知识图谱已提取：142条推荐路径，重点更新了 FLT3 突变患者的维持治疗策略。</p>
+                            </div>
+                            <div className="group p-4 rounded-lg border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition-colors cursor-pointer">
+                                <div className="flex justify-between items-start">
+                                <h4 className="font-bold text-slate-700 group-hover:text-blue-700">CSCO 恶性血液病诊疗指南</h4>
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded ml-2 shrink-0">2023 权威版</span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-2">AI 知识图谱已提取：本地化中国人群治疗数据，特别关注老年/不适合强化疗患者的 HMA+VEN 方案。</p>
+                            </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <div className="flex items-center mb-6">
+                            <Zap className="h-6 w-6 text-amber-500 mr-2 flex items-center justify-center" />
+                            <h3 className="text-lg font-bold text-slate-800">AI 前沿文献动态提炼</h3>
+                            </div>
+                            <div className="space-y-4">
+                            <div className="p-4 rounded-lg border border-amber-100 bg-amber-50">
+                                <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-amber-800 bg-amber-200 px-2 py-0.5 rounded">突破性进展</span>
+                                <ExternalLink className="h-4 w-4 text-amber-600 cursor-pointer flex items-center justify-center" />
+                                </div>
+                                <h4 className="font-bold text-slate-800 text-sm mb-2">靶向 Menin 抑制剂 Revumenib 在 KMT2A 重排及 NPM1 突变 AML 中的疗效</h4>
+                                <p className="text-xs text-slate-600 mb-2 font-serif italic">The New England Journal of Medicine (NEJM) - 2024.03</p>
+                                <p className="text-xs text-slate-500 line-clamp-2">
+                                <strong className="text-amber-700">AI 总结：</strong> I/II期临床数据显示，Revumenib 能够在此类极高危复发难治患者中实现超过 30% 的完全缓解率，现已将该药效权重加入 LeukoMatch 匹配算法。
+                                </p>
+                            </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                    );
+                case 'settings':
+                    return (
+                    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in-up pb-10">
+                        <div className="mb-8">
+                        <h2 className="text-2xl font-bold text-slate-800">系统全局参数与大模型设置</h2>
+                        <p className="text-sm text-slate-500 mt-1">调整底层 AI 算法逻辑，设置相似度计算的组学权重，以适应不同临床科室的需求。</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-6">
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <div className="flex items-center mb-4">
+                                <BrainCircuit className="h-5 w-5 text-purple-600 mr-2 flex items-center justify-center" />
+                                <h3 className="font-bold text-slate-800">医学大语言模型 (LLM) 引擎</h3>
+                            </div>
+                            <select 
+                                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-sm font-medium"
+                                value={modelSettings.llmEngine}
+                                onChange={(e) => setModelSettings({...modelSettings, llmEngine: e.target.value})}
+                            >
+                                <option value="leukomatch-med-v2">LeukoMatch Core-Med v2 (血液专病微调版 - 推荐)</option>
+                                <option value="gpt4-medical">GPT-4 Medical (云端通用医学大模型)</option>
+                                <option value="llama3-clinical">Llama-3-Clinical-70B (本地私有化部署)</option>
+                            </select>
+                            <p className="text-xs text-slate-500 mt-2">当前选择的模型已在 50 万份真实世界血液病历上进行了 SFT (监督微调)。</p>
+                            </div>
+
+                            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center">
+                                <Shield className="h-5 w-5 text-green-600 mr-2 flex items-center justify-center" />
+                                <h3 className="font-bold text-slate-800">多中心联邦学习</h3>
+                                </div>
+                                <div 
+                                className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-colors ${modelSettings.federatedLearning ? 'bg-green-500' : 'bg-slate-300'}`}
+                                onClick={() => setModelSettings({...modelSettings, federatedLearning: !modelSettings.federatedLearning})}
+                                >
+                                <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${modelSettings.federatedLearning ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                                </div>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                开启后，患者数据将<span className="text-green-600 font-bold">实现“数据可用不可见”</span>。模型参数在本地医院服务器更新后上传云端聚合，绝对保护患者隐私，符合《数据安全法》。
+                            </p>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                            <div className="flex items-center mb-6">
+                            <Sliders className="h-5 w-5 text-blue-600 mr-2 flex items-center justify-center" />
+                            <h3 className="font-bold text-slate-800">患者相似性网络 (PSN) 距离计算权重</h3>
+                            </div>
+                            
+                            <div className="space-y-6">
+                            <div>
+                                <div className="flex justify-between text-sm mb-2">
+                                <span className="font-medium text-slate-700">基因测序与突变组学特征</span>
+                                <span className="text-blue-600 font-bold">{modelSettings.genomicWeight}%</span>
+                                </div>
+                                <input 
+                                type="range" min="0" max="100" 
+                                value={modelSettings.genomicWeight} 
+                                onChange={(e) => setModelSettings({...modelSettings, genomicWeight: e.target.value})}
+                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">决定算法在匹配历史患者时，对 FLT3, NPM1 等分子生物学特征的侧重程度。</p>
+                            </div>
+
+                            <div>
+                                <div className="flex justify-between text-sm mb-2">
+                                <span className="font-medium text-slate-700">临床表型特征 (WBC, 幼稚细胞比例)</span>
+                                <span className="text-blue-600 font-bold">{modelSettings.clinicalWeight}%</span>
+                                </div>
+                                <input 
+                                type="range" min="0" max="100" 
+                                value={modelSettings.clinicalWeight}
+                                onChange={(e) => setModelSettings({...modelSettings, clinicalWeight: e.target.value})}
+                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                />
+                            </div>
+
+                            <div>
+                                <div className="flex justify-between text-sm mb-2">
+                                <span className="font-medium text-slate-700">人口统计学特征 (年龄、性别)</span>
+                                <span className="text-blue-600 font-bold">{modelSettings.demographicWeight}%</span>
+                                </div>
+                                <input 
+                                type="range" min="0" max="100" 
+                                value={modelSettings.demographicWeight}
+                                onChange={(e) => setModelSettings({...modelSettings, demographicWeight: e.target.value})}
+                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                />
+                            </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                    );
+                default:
+                    return null;
+                }
+            };
+
+            return (
+                <div className="flex flex-col md:flex-row h-screen w-full bg-slate-50 font-sans text-slate-800 overflow-hidden">
+                
+                {/* 侧边栏 */}
+                <aside className="w-full md:w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-20 shrink-0">
+                    <div className="p-4 md:p-6 flex items-center space-x-3 text-white border-b border-slate-800">
+                    <ActivitySquare className="text-3xl text-blue-400" />
+                    <div>
+                        <h1 className="text-xl font-bold tracking-wider">LeukoMatch</h1>
+                        <p className="text-xs text-blue-400 font-medium">AI 临床辅助决策系统</p>
+                    </div>
+                    </div>
+                    
+                    {/* 移动端横向滚动，PC端纵向列表 */}
+                    <nav className="flex-none md:flex-1 p-2 md:py-6 md:px-3 flex flex-row md:flex-col gap-2 overflow-x-auto md:overflow-y-auto no-scrollbar border-b md:border-b-0 border-slate-800">
+                    <NavItem icon={<Users />} text="新患者评估" active={activeTab === 'assessment'} onClick={() => setActiveTab('assessment')} />
+                    <NavItem icon={<Database />} text="历史病例图谱" active={activeTab === 'database'} onClick={() => setActiveTab('database')} />
+                    <NavItem icon={<FileText />} text="指南知识库" active={activeTab === 'guidelines'} onClick={() => setActiveTab('guidelines')} />
+                    <NavItem icon={<Settings />} text="系统设置" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+                    </nav>
+
+                    <div className="hidden md:block p-4 border-t border-slate-800 text-xs text-slate-500 text-center leading-relaxed">
+                    天津医科大学临床朱宪彝班<br/>
+                    <span className="text-blue-400 font-medium text-sm mt-1 block">孙克群 设想与构建</span>
+                    <span className="mt-2 block opacity-60">2025 自主学习项目</span>
+                    </div>
+                </aside>
+
+                {/* 主体内容区 */}
+                <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+                    {/* 顶部导航 */}
+                    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shadow-sm z-10 shrink-0">
+                    <h2 className="text-sm md:text-lg font-semibold text-slate-700 truncate mr-4">
+                        {activeTab === 'assessment' && "患者相似度匹配与零试错推荐面板"}
+                        {activeTab === 'database' && "全国多中心脱敏病例数据库"}
+                        {activeTab === 'guidelines' && "AI 循证医学知识库"}
+                        {activeTab === 'settings' && "全局偏好与模型权重设置"}
+                    </h2>
+                    <div className="hidden sm:flex items-center space-x-3 bg-indigo-50 px-4 py-1.5 rounded-full border border-indigo-100 shadow-sm shrink-0">
+                        <span className="text-xs text-indigo-800 font-medium">天津医科大学</span>
+                        <div className="h-6 w-6 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm">孙</div>
+                        <span className="text-sm font-bold text-indigo-900 border-l border-indigo-200 pl-3">孙克群</span>
+                    </div>
+                    </header>
+
+                    {/* 内容区域 (允许滚动) */}
+                    <div className="flex-1 overflow-y-auto p-4 md:p-8">
+                    {renderContent()}
+                    </div>
+                </main>
+                </div>
+            );
+        };
+
+        // 挂载应用到 DOM
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
